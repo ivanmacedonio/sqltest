@@ -1,0 +1,101 @@
+1. Escriba el código de SQL que le permite conocer el monto y la cantidad de las transacciones que SIMETRIK considera como conciliables para la base de CLAP
+
+
+SELECT SUM(monto) AS monto_total, COUNT(*) AS cantidad_filas
+FROM CLAP
+WHERE TIPO_TRX LIKE '%pagada%';
+
+
+2. Escriba el código de SQL que le permite conocer el monto y la cantidad de las transacciones que SIMETRIK considera como conciliables para la base de BANSUR
+
+SELECT SUM(monto) AS monto_total, COUNT(*) AS cantidad_filas
+FROM BANSUR
+WHERE TIPO_TRX LIKE '%pagada%';
+
+3. ¿Cómo se comparan las cifras de los puntos anteriores respecto de las cifras totales en las fuentes desde un punto de vista del negocio?
+
+Si las cifras de transacciones conciliables son altas en comparación con el total de transacciones, esto podría indicar una buena calidad de datos y un alto nivel de conciliación.
+Por otro lado, si las cifras de transacciones conciliables son bajas en comparación con el total de transacciones, podría ser necesario revisar los criterios de conciliación o 
+identificar posibles problemas en la calidad de los datos.
+
+4. Teniendo en cuenta los criterios de cruce entre ambas bases conciliables, escriba una sentencia de SQL que contenga la información de CLAP y BANSUR; agregue una columna en la que se evidencie si la transacción cruzó o no con su contrapartida y una columna en la que se inserte un ID autoincremental para el control de la conciliación
+
+-- Crear tabla conciliables_combinados
+CREATE TABLE conciliables_combinados AS
+SELECT cclap.*, cbansur.*
+FROM conciliable_clap AS cclap
+INNER JOIN conciliable_bansur AS cbansur ON cclap.id = cbansur.id
+WHERE cclap.INICIO6_TARJETA = cbansur.INICIO6_TARJETA
+    AND cclap.FINAL4_TARJETA = cbansur.FINAL4_TARJETA
+    AND (cclap.MONTO = cbansur.MONTO OR ABS(cclap.MONTO - cbansur.MONTO) = 1)
+    AND cclap.FECHA_TRANSACCION = cbansur.FECHA_TRANSACCION;
+
+
+-- Agregar columna "Cruce" con indicador de transacción cruzada
+ALTER TABLE conciliables_combinados
+ADD Cruce VARCHAR(10);
+
+UPDATE conciliables_combinados
+SET Cruce = 'Cruzó'
+WHERE INICIO6_TARJETA = FINAL4_TARJETA;
+
+UPDATE conciliables_combinados
+SET Cruce = 'No cruzó'
+WHERE INICIO6_TARJETA <> FINAL4_TARJETA;
+
+-- Agregar columna "ID" autoincremental para control de conciliación
+ALTER TABLE conciliables_combinados
+ADD ID INT IDENTITY(1,1) PRIMARY KEY;
+
+
+5. Diseñe un código que calcule el porcentaje de transacciones de la base conciliable de CLAP cruzó contra la liquidación de BANSUR.
+
+## teniendo en cuenta que las tablas conciliabls de clap y bansur ya fueron creadas con la sentencia SQL de los primeros dos puntos 
+SELECT COUNT(*) AS total_clap
+FROM conciliable_clap;
+
+
+SELECT COUNT(*) AS cruzadas
+FROM conciliable_clap cc
+INNER JOIN conciliable_bansur cb ON cc.id = cb.id
+WHERE cc.INICIO6_TARJETA = cb.FINAL4_TARJETA;
+
+
+SELECT (cruzadas * 100.0 / total_clap) AS porcentaje_cruzadas
+FROM
+(
+    SELECT COUNT(*) AS total_clap
+    FROM conciliable_clap
+) total_clap_subquery,
+(
+    SELECT COUNT(*) AS cruzadas
+    FROM conciliable_clap cc
+    INNER JOIN conciliable_bansur cb ON cc.id = cb.id
+    WHERE cc.INICIO6_TARJETA = cb.FINAL4_TARJETA
+) cruzadas_subquery;
+
+6. Diseñe un código que calcule el porcentaje de transacciones de la base conciliable de BANSUR no cruzó contra la liquidación de CLAP.
+
+
+SELECT COUNT(*) AS total_bansur
+FROM conciliable_bansur;
+
+
+SELECT COUNT(*) AS no_cruzadas
+FROM conciliable_bansur cb
+LEFT JOIN conciliable_clap cc ON cb.id = cc.id
+WHERE cc.id IS NULL;
+
+
+SELECT (no_cruzadas * 100.0 / total_bansur) AS porcentaje_no_cruzadas
+FROM
+(
+    SELECT COUNT(*) AS total_bansur
+    FROM conciliable_bansur
+) total_bansur_subquery,
+(
+    SELECT COUNT(*) AS no_cruzadas
+    FROM conciliable_bansur cb
+    LEFT JOIN conciliable_clap cc ON cb.id = cc.id
+    WHERE cc.id IS NULL
+) no_cruzadas_subquery;
